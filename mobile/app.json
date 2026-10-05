@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "FinAssist",
+    "slug": "finassist",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Валли нужна запись голоса, чтобы добавлять расходы по команде.",
+          "speechRecognitionPermission": "Валли нужна распознавание речи для голосовых команд."
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.budgetapp.finassist",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Валли нужна запись голоса, чтобы добавлять расходы по команде.",
+        "NSSpeechRecognitionUsageDescription": "Валли нужна распознавание речи для голосовых команд."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#101116",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.budgetapp.finassist",
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

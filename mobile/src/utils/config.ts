@@ -30,4 +30,4 @@ function resolveHost(): string {
   return DEV_HOST || 'localhost';
 }
 
-export const API_BASE_URL = `http://${resolveHost()}:8080/api/v1`;
+export const API_BASE_URL = 'https://fin-assist.onrender.com/api/v1';

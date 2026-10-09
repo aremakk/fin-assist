@@ -12,6 +12,9 @@ const DEV_HOST = '172.20.10.2';
 /** FinAssist local port — 8080 may be taken by another app */
 const API_PORT = 8090;
 
+/** Use local API only while developing against Metro / local Spring Boot. */
+const USE_LOCAL_API = false;
+
 function resolveHost(): string {
   const scriptURL = NativeModules.SourceCode?.scriptURL as string | undefined;
   if (scriptURL) {
@@ -34,5 +37,6 @@ function resolveHost(): string {
   return DEV_HOST || 'localhost';
 }
 
-// Local FinAssist API. Production: 'https://fin-assist-p2gq.onrender.com/api/v1'
-export const API_BASE_URL = `http://${resolveHost()}:${API_PORT}/api/v1`;
+export const API_BASE_URL = USE_LOCAL_API
+  ? `http://${resolveHost()}:${API_PORT}/api/v1`
+  : 'https://fin-assist-p2gq.onrender.com/api/v1';

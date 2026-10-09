@@ -1,7 +1,7 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   TextInputProps,
@@ -9,23 +9,75 @@ import {
   ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
+import { spacing } from '../utils/theme';
 import { BrandLoader } from './BrandLoader';
 
-export function Screen({ children, style, safeTop = false }: { children: React.ReactNode; style?: ViewStyle; safeTop?: boolean }) {
-  return <SafeAreaView edges={safeTop ? ['top'] : []} style={[styles.screen, style]}>{children}</SafeAreaView>;
+export function Screen({
+  children,
+  style,
+  safeTop = false,
+}: {
+  children: React.ReactNode;
+  style?: ViewStyle;
+  safeTop?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <SafeAreaView
+      edges={safeTop ? ['top'] : []}
+      style={[{ flex: 1, backgroundColor: colors.background, padding: spacing.lg }, style]}
+    >
+      {children}
+    </SafeAreaView>
+  );
 }
 
 export function Title({ children }: { children: React.ReactNode }) {
-  return <Text style={styles.title}>{children}</Text>;
+  const { colors } = useTheme();
+  return (
+    <Text
+      style={{
+        fontSize: 36,
+        fontWeight: '800',
+        letterSpacing: -1.6,
+        color: colors.text,
+        marginBottom: spacing.sm,
+      }}
+    >
+      {children}
+    </Text>
+  );
 }
 
 export function Subtitle({ children }: { children: React.ReactNode }) {
-  return <Text style={styles.subtitle}>{children}</Text>;
+  const { colors } = useTheme();
+  return (
+    <Text style={{ fontSize: 14, color: colors.textMuted, marginBottom: spacing.md }}>
+      {children}
+    </Text>
+  );
 }
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colors.surface,
+          borderRadius: 24,
+          padding: spacing.lg,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginBottom: spacing.md,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function Button({
@@ -41,26 +93,37 @@ export function Button({
   disabled?: boolean;
   loading?: boolean;
 }) {
+  const { colors } = useTheme();
+  const spinnerColor =
+    variant === 'secondary' || variant === 'danger' ? colors.text : colors.ink;
+
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled || loading}
       style={({ pressed }) => [
-        styles.button,
-        variant === 'secondary' && styles.buttonSecondary,
-        variant === 'danger' && styles.buttonDanger,
-        (disabled || loading) && styles.buttonDisabled,
-        pressed && !disabled && styles.buttonPressed,
+        {
+          backgroundColor: colors.primary,
+          borderRadius: 16,
+          paddingVertical: 17,
+          alignItems: 'center',
+          marginTop: spacing.sm,
+        },
+        variant === 'secondary' && { backgroundColor: colors.surfaceRaised },
+        variant === 'danger' && { backgroundColor: colors.danger },
+        (disabled || loading) && { opacity: 0.6 },
+        pressed && !disabled && { opacity: 0.9 },
       ]}
     >
       {loading ? (
-        <BrandLoader size={30} />
+        <ActivityIndicator color={spinnerColor} />
       ) : (
         <Text
-          style={[
-            styles.buttonText,
-            variant === 'secondary' && styles.buttonTextSecondary,
-          ]}
+          style={{
+            color: variant === 'secondary' ? colors.text : colors.ink,
+            fontSize: 16,
+            fontWeight: '800',
+          }}
         >
           {title}
         </Text>
@@ -74,36 +137,73 @@ export function Input({
   error,
   ...props
 }: TextInputProps & { label?: string; error?: string }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.inputWrap}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+    <View style={{ marginBottom: spacing.md }}>
+      {label ? (
+        <Text style={{ marginBottom: 6, color: colors.text, fontWeight: '600' }}>{label}</Text>
+      ) : null}
       <TextInput
         placeholderTextColor={colors.textMuted}
-        style={[styles.input, error ? styles.inputError : null]}
+        style={{
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: error ? colors.danger : colors.border,
+          borderRadius: 16,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          fontSize: 16,
+          color: colors.text,
+        }}
         {...props}
       />
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <Text style={{ color: colors.danger, marginTop: 6, fontSize: 13 }}>{error}</Text>
+      ) : null}
     </View>
   );
 }
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.empty}>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      {hint ? <Text style={styles.emptyHint}>{hint}</Text> : null}
+    <View
+      style={{
+        paddingVertical: spacing.xl,
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Text style={{ fontSize: 17, fontWeight: '600', color: colors.text, marginBottom: 6 }}>
+        {title}
+      </Text>
+      {hint ? (
+        <Text style={{ color: colors.textMuted, textAlign: 'center' }}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
 
 export function ErrorText({ children }: { children?: string | null }) {
+  const { colors } = useTheme();
   if (!children) return null;
-  return <Text style={styles.error}>{children}</Text>;
+  return <Text style={{ color: colors.danger, marginTop: 6, fontSize: 13 }}>{children}</Text>;
 }
 
 export function Loading() {
+  const { colors } = useTheme();
   return (
-    <View style={styles.loading}>
+    <View
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.background,
+      }}
+    >
       <BrandLoader size={56} />
     </View>
   );
@@ -115,108 +215,3 @@ export const brandRefreshProps = {
   colors: ['transparent'] as string[],
   progressBackgroundColor: 'transparent' as const,
 };
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-    padding: spacing.lg,
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: '800',
-    letterSpacing: -1.6,
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: colors.textMuted,
-    marginBottom: spacing.md,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-  },
-  button: {
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 17,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  buttonSecondary: {
-    backgroundColor: colors.surfaceRaised,
-  },
-  buttonDanger: {
-    backgroundColor: colors.danger,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonPressed: {
-    opacity: 0.9,
-  },
-  buttonText: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  buttonTextSecondary: {
-    color: colors.text,
-  },
-  inputWrap: {
-    marginBottom: spacing.md,
-  },
-  label: {
-    marginBottom: 6,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-  },
-  inputError: {
-    borderColor: colors.danger,
-  },
-  error: {
-    color: colors.danger,
-    marginTop: 6,
-    fontSize: 13,
-  },
-  empty: {
-    paddingVertical: spacing.xl,
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 6,
-  },
-  emptyHint: {
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
-});

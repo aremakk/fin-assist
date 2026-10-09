@@ -5,7 +5,7 @@ spring:
   application:
     name: budget-app
   datasource:
-    url: jdbc:postgresql://localhost:5432/budget_app
+    url: jdbc:postgresql://localhost:${DB_PORT:55432}/budget_app
     username: budget
     password: budget
   jpa:

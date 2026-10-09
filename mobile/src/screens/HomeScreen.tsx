@@ -1,5 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useState, useMemo } from 'react';
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { KeyboardScrollView } from '../components/KeyboardScreen';
 import { CompositeNavigationProp, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,11 +9,12 @@ import { ErrorText, Loading, Screen, brandRefreshProps } from '../components/ui'
 import { AssistantBanner, AssistantHintCard } from '../components/Assistant';
 import { BrandRefreshOverlay } from '../components/BrandLoader';
 import { useAssistantScreen } from '../hooks/useAssistantScreen';
+import { useBrandPullRefresh } from '../hooks/useBrandPullRefresh';
 import { MainTabParamList, RootStackParamList } from '../navigation/types';
 import type { AnalyzeInsight, Summary, Wallet } from '../types';
 import { DEFAULT_CURRENCY, formatMoney, getErrorMessage, monthRange } from '../utils/format';
-import { createBrandRefreshGate } from '../utils/refreshHold';
-import { colors, spacing } from '../utils/theme';
+import { spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
 
 const monthLabel = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' }).format(new Date());
 
@@ -22,192 +24,8 @@ type HomeNav = CompositeNavigationProp<
 >;
 
 export function HomeScreen() {
-  const navigation = useNavigation<HomeNav>();
-  useAssistantScreen('Home');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [wallets, setWallets] = useState<Wallet[]>([]);
-  const [balance, setBalance] = useState(0);
-  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [insightTeaser, setInsightTeaser] = useState<AnalyzeInsight | null>(null);
-  const [pullProgress, setPullProgress] = useState(0);
-  const refreshGate = useRef(
-    createBrandRefreshGate(() => {
-      setRefreshing(false);
-      setPullProgress(0);
-    })
-  ).current;
-
-  const load = useCallback(async (isRefresh = false) => {
-    try {
-      setError(null);
-      const walletList = await walletsApi.list();
-      setWallets(walletList);
-      setCurrency(walletList[0]?.currency ?? DEFAULT_CURRENCY);
-
-      if (walletList.length === 0) {
-        setBalance(0);
-        setSummary(null);
-        setInsightTeaser(null);
-        return;
-      }
-
-      const { from, to } = monthRange();
-      const [balances, sum] = await Promise.all([
-        Promise.all(walletList.map((w) => walletsApi.balance(w.id))),
-        statsApi.summary(from, to),
-      ]);
-      setBalance(balances.reduce((acc, b) => acc + Number(b.balance), 0));
-      setSummary(sum);
-
-      insightsApi
-        .analyze({ from, to })
-        .then(setInsightTeaser)
-        .catch(() => setInsightTeaser(null));
-    } catch (e) {
-      setError(getErrorMessage(e));
-    } finally {
-      setLoading(false);
-      if (isRefresh) {
-        refreshGate.markDataReady();
-      } else {
-        setRefreshing(false);
-      }
-    }
-  }, [refreshGate]);
-
-  useFocusEffect(useCallback(() => {
-    setLoading(true);
-    load(false);
-  }, [load]));
-
-  if (loading) return <Loading />;
-
-  const walletCaption =
-    wallets.length === 0
-      ? 'Нет кошелька'
-      : wallets.length === 1
-        ? `${wallets[0].name} ↗`
-        : `${wallets.length} кошелька ↗`;
-
-  const startRefresh = () => {
-    refreshGate.reset();
-    setRefreshing(true);
-    load(true);
-  };
-
-  return (
-    <Screen style={styles.screen} safeTop>
-      <View style={styles.flex}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          scrollEventThrottle={16}
-          onScroll={(e) => {
-            if (refreshing) return;
-            const y = e.nativeEvent.contentOffset.y;
-            if (y < 0) setPullProgress(Math.min(1, -y / 90));
-            else setPullProgress(0);
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={startRefresh}
-              {...brandRefreshProps}
-            />
-          }
-        >
-          <View style={styles.topline}>
-            <Text style={styles.brand}>
-              FINASSIST <Text style={styles.brandEdition}>/ PERSONAL FINANCE</Text>
-            </Text>
-            <View style={styles.liveDot} />
-          </View>
-
-          <View style={styles.headingRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.eyebrow}>ВАШИ ФИНАНСЫ  /  {monthLabel.toUpperCase()}</Text>
-              <Text style={styles.heading}>Деньги.{`\n`}В порядке</Text>
-            </View>
-          </View>
-
-          <ErrorText>{error}</ErrorText>
-
-          <View style={styles.balanceCard}>
-            <View style={styles.orbitOuter} />
-            <View style={styles.orbitInner} />
-            <View style={styles.balanceTop}>
-              <Text style={styles.balanceEyebrow}>01 / ВАШ БАЛАНС</Text>
-              <Text style={styles.walletName} numberOfLines={1}>{walletCaption}</Text>
-            </View>
-            <Text style={styles.balance} numberOfLines={1} adjustsFontSizeToFit>
-              {formatMoney(balance, currency)}
-            </Text>
-            <View style={styles.balanceBottom}>
-              <Text style={styles.balanceCaption}>Доступно сейчас · ₸</Text>
-              <View style={styles.balanceSymbol}>
-                <Text style={styles.balanceSymbolText}>↗</Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.metrics}>
-            <View style={[styles.metric, styles.incomeMetric]}>
-              <View style={styles.metricTop}>
-                <Text style={styles.metricIndex}>02 / ДОХОД</Text>
-                <Text style={styles.metricArrow}>↗</Text>
-              </View>
-              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
-                {formatMoney(summary?.incomes ?? 0, currency)}
-              </Text>
-              <Text style={styles.metricCaption}>За этот месяц</Text>
-            </View>
-            <View style={[styles.metric, styles.expenseMetric]}>
-              <View style={styles.metricTop}>
-                <Text style={styles.metricIndex}>03 / РАСХОД</Text>
-                <Text style={styles.metricArrow}>↘</Text>
-              </View>
-              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
-                {formatMoney(summary?.expenses ?? 0, currency)}
-              </Text>
-              <Text style={styles.metricCaption}>За этот месяц</Text>
-            </View>
-          </View>
-
-          <View style={styles.assistantBlock}>
-            <AssistantBanner />
-            <AssistantHintCard />
-          </View>
-
-          {insightTeaser ? (
-            <Pressable
-              style={({ pressed }) => [styles.aiTeaser, pressed && styles.pressed]}
-              onPress={() => navigation.navigate('Insights')}
-            >
-              <Text style={styles.aiTeaserIndex}>ИИ / ОТЧЁТ</Text>
-              <Text style={styles.aiTeaserHeadline} numberOfLines={1}>
-                {insightTeaser.headline || 'Анализ месяца'}
-              </Text>
-              <Text style={styles.aiTeaserSummary} numberOfLines={2}>
-                {insightTeaser.summary}
-              </Text>
-              <Text style={styles.aiTeaserLink}>Подробнее →</Text>
-            </Pressable>
-          ) : null}
-        </ScrollView>
-        <BrandRefreshOverlay
-          visible={refreshing}
-          progress={pullProgress}
-          onFinished={() => refreshGate.markAnimReady()}
-        />
-      </View>
-    </Screen>
-  );
-}
-
-const styles = StyleSheet.create({
+  const { colors } = useTheme();
+  const styles = useMemo(() => StyleSheet.create({
   screen: { padding: 0 },
   flex: { flex: 1 },
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: 36 },
@@ -231,7 +49,7 @@ const styles = StyleSheet.create({
     width: 270,
     height: 270,
     borderRadius: 135,
-    borderColor: '#B8DB58',
+    borderColor: colors.onPrimaryMuted,
     borderWidth: 1,
     right: -105,
     top: -90,
@@ -241,7 +59,7 @@ const styles = StyleSheet.create({
     width: 170,
     height: 170,
     borderRadius: 85,
-    borderColor: '#B8DB58',
+    borderColor: colors.onPrimaryMuted,
     borderWidth: 1,
     right: -55,
     top: -40,
@@ -258,7 +76,7 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
   balanceBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  balanceCaption: { color: '#53652F', fontSize: 12, fontWeight: '700' },
+  balanceCaption: { color: colors.onPrimaryMuted, fontSize: 12, fontWeight: '700' },
   balanceSymbol: {
     width: 38,
     height: 38,
@@ -278,7 +96,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   incomeMetric: { backgroundColor: colors.violetDeep },
-  expenseMetric: { backgroundColor: colors.surface },
+  expenseMetric: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   metricTop: { flexDirection: 'row', justifyContent: 'space-between' },
   metricIndex: { color: colors.textMuted, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   metricArrow: { color: colors.violet, fontSize: 18, lineHeight: 18 },
@@ -310,4 +128,179 @@ const styles = StyleSheet.create({
   aiTeaserSummary: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: 10 },
   aiTeaserLink: { color: colors.primary, fontSize: 12, fontWeight: '800' },
   pressed: { opacity: 0.72 },
-});
+}), [colors]);
+
+  const navigation = useNavigation<HomeNav>();
+  useAssistantScreen('Home');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [balance, setBalance] = useState(0);
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [insightTeaser, setInsightTeaser] = useState<AnalyzeInsight | null>(null);
+  const {
+    refreshing,
+    dataReady,
+    pullProgress,
+    startRefresh,
+    onPullScroll,
+    armRefresh,
+    markDataReady,
+    markAnimReady,
+  } = useBrandPullRefresh();
+
+  const load = useCallback(async (isRefresh = false) => {
+    try {
+      setError(null);
+      const walletList = await walletsApi.list();
+      setWallets(walletList);
+      setCurrency(walletList[0]?.currency ?? DEFAULT_CURRENCY);
+
+      if (walletList.length === 0) {
+        setBalance(0);
+        setSummary(null);
+        setInsightTeaser(null);
+        return;
+      }
+
+      const { from, to } = monthRange();
+      const [balances, sum] = await Promise.all([
+        Promise.all(walletList.map((w) => walletsApi.balance(w.id))),
+        statsApi.summary(from, to),
+      ]);
+      setBalance(balances.reduce((acc, b) => acc + Number(b.balance), 0));
+      setSummary(sum);
+
+      insightsApi
+        .analyze({ from, to })
+        .then(setInsightTeaser)
+        .catch(() => setInsightTeaser(null));
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
+      if (isRefresh) markDataReady();
+    }
+  }, [markDataReady]);
+
+  armRefresh(() => load(true));
+
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
+    load(false);
+  }, [load]));
+
+  if (loading) return <Loading />;
+
+  const walletCaption =
+    wallets.length === 0
+      ? 'Нет кошелька'
+      : wallets.length === 1
+        ? `${wallets[0].name} ↗`
+        : `${wallets.length} кошелька ↗`;
+
+  return (
+    <Screen style={styles.screen} safeTop>
+      <View style={styles.flex}>
+        <KeyboardScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={onPullScroll}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={startRefresh}
+              {...brandRefreshProps}
+            />
+          }
+        >
+          <View style={styles.topline}>
+            <Text style={styles.brand}>
+              FINASSIST <Text style={styles.brandEdition}>/ PERSONAL FINANCE</Text>
+            </Text>
+            <View style={styles.liveDot} />
+          </View>
+
+          <View style={styles.headingRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.eyebrow}>ВАШИ ФИНАНСЫ  /  {monthLabel.toUpperCase()}</Text>
+              <Text style={styles.heading}>Деньги.{`\n`}В порядке</Text>
+            </View>
+          </View>
+
+          <ErrorText>{error}</ErrorText>
+
+          <View style={styles.balanceCard}>
+            <View style={styles.orbitOuter} />
+            <View style={styles.orbitInner} />
+            <View style={styles.balanceTop}>
+              <Text style={styles.balanceEyebrow}>ВАШ БАЛАНС</Text>
+              <Text style={styles.walletName} numberOfLines={1}>{walletCaption}</Text>
+            </View>
+            <Text style={styles.balance} numberOfLines={1} adjustsFontSizeToFit>
+              {formatMoney(balance, currency)}
+            </Text>
+            <View style={styles.balanceBottom}>
+              <Text style={styles.balanceCaption}>Доступно сейчас · ₸</Text>
+              <View style={styles.balanceSymbol}>
+                <Text style={styles.balanceSymbolText}>↗</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metrics}>
+            <View style={[styles.metric, styles.incomeMetric]}>
+              <View style={styles.metricTop}>
+                <Text style={styles.metricIndex}>ДОХОД</Text>
+                <Text style={styles.metricArrow}>↗</Text>
+              </View>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
+                {formatMoney(summary?.incomes ?? 0, currency)}
+              </Text>
+              <Text style={styles.metricCaption}>За этот месяц</Text>
+            </View>
+            <View style={[styles.metric, styles.expenseMetric]}>
+              <View style={styles.metricTop}>
+                <Text style={styles.metricIndex}>РАСХОД</Text>
+                <Text style={styles.metricArrow}>↘</Text>
+              </View>
+              <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit>
+                {formatMoney(summary?.expenses ?? 0, currency)}
+              </Text>
+              <Text style={styles.metricCaption}>За этот месяц</Text>
+            </View>
+          </View>
+
+          <View style={styles.assistantBlock}>
+            <AssistantBanner />
+            <AssistantHintCard />
+          </View>
+
+          {insightTeaser ? (
+            <Pressable
+              style={({ pressed }) => [styles.aiTeaser, pressed && styles.pressed]}
+              onPress={() => navigation.navigate('Insights')}
+            >
+              <Text style={styles.aiTeaserIndex}>ИИ / ОТЧЁТ</Text>
+              <Text style={styles.aiTeaserHeadline} numberOfLines={1}>
+                {insightTeaser.headline || 'Анализ месяца'}
+              </Text>
+              <Text style={styles.aiTeaserSummary} numberOfLines={2}>
+                {insightTeaser.summary}
+              </Text>
+              <Text style={styles.aiTeaserLink}>Подробнее →</Text>
+            </Pressable>
+          ) : null}
+        </KeyboardScrollView>
+        <BrandRefreshOverlay
+          visible={refreshing}
+          complete={dataReady}
+          progress={pullProgress}
+          onFinished={markAnimReady}
+        />
+      </View>
+    </Screen>
+  );
+}

@@ -13,7 +13,7 @@ import { insightsApi } from '../api';
 import type { AssistAction, ProactiveAlert, TransactionDraft } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 import { getErrorMessage } from '../utils/format';
-import { parseWallECommand } from '../utils/wallE';
+import { looksLikeTransactionCommand, parseWallECommand } from '../utils/wallE';
 import { useWallEVoice } from '../hooks/useWallEVoice';
 
 export type { TransactionDraft };
@@ -51,6 +51,8 @@ type AssistantContextValue = {
   applyAction: (action: AssistAction) => void;
   startListening: () => Promise<void>;
   stopListening: () => void;
+  pauseAmbient: () => void;
+  resumeAmbient: () => void;
 };
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -73,9 +75,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const dismissed = useRef<Set<string>>(new Set());
   const wallEActiveRef = useRef(false);
   const handlingRef = useRef(false);
+  const busyRef = useRef(false);
   const screenRef = useRef(screen);
   screenRef.current = screen;
   wallEActiveRef.current = wallEActive;
+  busyRef.current = busy;
 
   const setNavigationRef = useCallback((ref: NavigationContainerRef<RootStackParamList> | null) => {
     navRef.current = ref;
@@ -161,7 +165,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const runAssist = useCallback(
     async (message: string, opts?: AssistOptions) => {
       const text = message.trim();
-      if (!text || busy) return;
+      if (!text || busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       setError(null);
       try {
@@ -183,10 +188,11 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         setError(getErrorMessage(e));
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     },
-    [applyAction, busy, confirmDraft]
+    [applyAction, confirmDraft]
   );
 
   const confirmCreate = useCallback(async () => {
@@ -211,9 +217,12 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
 
   const handleSpoken = useCallback(
     async (spoken: string) => {
-      if (handlingRef.current) return;
+      if (handlingRef.current || busyRef.current) return;
       const { woke, command } = parseWallECommand(spoken);
-      if (!woke && !wallEActiveRef.current) return;
+      const active = wallEActiveRef.current;
+
+      // Ignore noise unless wake word or already in a session / clear money phrase while active
+      if (!woke && !active) return;
 
       handlingRef.current = true;
       try {
@@ -222,7 +231,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
           wallEActiveRef.current = true;
           if (!command) {
             setReply('Слушаю, Валли на связи.');
-            setHints(['Скажите, что записать. Например: 2000 на такси']);
+            setHints(['Скажите сумму: «2000 на такси» или «запиши 1500 на еду»']);
+            setError(null);
             return;
           }
           await runAssist(command, { autoConfirm: true });
@@ -230,7 +240,14 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
           wallEActiveRef.current = false;
           return;
         }
-        if (wallEActiveRef.current && spoken.trim()) {
+
+        if (active && spoken.trim()) {
+          // Skip tiny noise while waiting for command
+          if (spoken.trim().length < 2) return;
+          if (!looksLikeTransactionCommand(spoken) && spoken.trim().split(/\s+/).length < 2) {
+            setHints(['Не расслышала. Например: 2000 на такси']);
+            return;
+          }
           await runAssist(spoken.trim(), { autoConfirm: true });
           setWallEActive(false);
           wallEActiveRef.current = false;
@@ -242,36 +259,34 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     [runAssist]
   );
 
-  const { listening, supported, startListening, stopListening } = useWallEVoice({
+  const {
+    listening,
+    supported,
+    startListening,
+    stopListening,
+    pauseAmbient,
+    resumeAmbient,
+  } = useWallEVoice({
     onFinal: (text) => {
       setTranscript(text);
       handleSpoken(text);
     },
     onInterim: setTranscript,
     onError: setError,
+    autoRestart: true,
   });
-
-  // After wake-only «Валли», listen again for the command
-  useEffect(() => {
-    if (wallEActive && !listening && !busy && reply === 'Слушаю, Валли на связи.') {
-      const t = setTimeout(() => {
-        startListening();
-      }, 450);
-      return () => clearTimeout(t);
-    }
-  }, [wallEActive, listening, busy, reply, startListening]);
 
   useEffect(() => {
     const onChange = (state: AppStateStatus) => {
       if (state === 'active' && screenRef.current === 'Home' && supported) {
-        setTimeout(() => startListening(), 600);
+        resumeAmbient();
       } else if (state !== 'active') {
-        stopListening();
+        pauseAmbient();
       }
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [startListening, stopListening, supported]);
+  }, [pauseAmbient, resumeAmbient, supported]);
 
   const value = useMemo(
     () => ({
@@ -299,6 +314,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       applyAction,
       startListening,
       stopListening,
+      pauseAmbient,
+      resumeAmbient,
     }),
     [
       screen,
@@ -323,6 +340,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       applyAction,
       startListening,
       stopListening,
+      pauseAmbient,
+      resumeAmbient,
     ]
   );
 

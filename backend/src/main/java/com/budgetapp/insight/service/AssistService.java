@@ -70,11 +70,14 @@ public class AssistService {
             }
             Правила:
             - Только финансы пользователя. Оффтоп — вежливо откажи в reply, actions=[].
-            - CREATE_TRANSACTION только если пользователь явно просит записать/добавить расход или доход.
+            - CREATE_TRANSACTION если пользователь называет сумму расхода/дохода
+              (в т.ч. голосом: «запиши 2000 на такси», «2000 на еду», «потратил 1500 на кофе»).
+              Не требуй обязательно слово «запиши», если есть сумма и на что.
             - NAVIGATE если просит открыть экран.
-            - TIP для совета без действия.
-            - categoryId/walletId бери только из переданных списков.
+            - TIP для совета без действия / без суммы.
+            - categoryId/walletId бери только из переданных списков (или null + categoryName).
             - needsConfirm всегда true для CREATE_TRANSACTION.
+            - reply коротко, по-русски, от лица Валли.
             """;
 
     private final GeminiClient geminiClient;
@@ -200,14 +203,14 @@ public class AssistService {
             else if (lower.contains("добав") || lower.contains("запис")) route = "TransactionForm";
             actions.add(new AssistAction("NAVIGATE", false, null, route, Map.of(), null));
             reply = "Открываю «" + route + "».";
-        } else if (!message.isBlank() && (lower.contains("запиши") || lower.contains("добавь") || lower.contains("расход")
-                || lower.contains("доход"))) {
+        } else if (!message.isBlank() && looksLikeMoneyPhrase(lower)) {
             TransactionDraft draft = parseDraftFromText(userId, message);
             if (draft != null) {
                 actions.add(new AssistAction("CREATE_TRANSACTION", true, draft, null, null, null));
-                reply = "Подтвердите запись операции.";
+                reply = "Записать " + draft.amount().stripTrailingZeros().toPlainString()
+                        + " ₸ · " + (draft.categoryName() == null ? "категория" : draft.categoryName()) + "?";
             } else {
-                reply = "Уточните сумму и на что потратили, например: «запиши 2000 на такси».";
+                reply = "Уточните сумму и на что, например: «2000 на такси».";
             }
         } else {
             reply = switch (screen) {
@@ -424,10 +427,30 @@ public class AssistService {
                     ? "Могу записать расход или открыть статистику."
                     : raw.reply());
         }
+        // If model forgot CREATE but user clearly named an amount — parse locally
+        if (cleaned.stream().noneMatch(a -> "CREATE_TRANSACTION".equals(a.type()))
+                && looksLikeMoneyPhrase(message.toLowerCase(Locale.ROOT))) {
+            TransactionDraft fallback = parseDraftFromText(userId, message);
+            if (fallback != null) {
+                cleaned = new ArrayList<>(cleaned);
+                cleaned.add(new AssistAction("CREATE_TRANSACTION", true, fallback, null, null, null));
+            }
+        }
+
         String reply = raw.reply() == null || raw.reply().isBlank()
                 ? (cleaned.isEmpty() ? "Чем помочь по финансам?" : "Готово.")
                 : raw.reply();
         return new AssistResponse(reply, hints, cleaned);
+    }
+
+    private static boolean looksLikeMoneyPhrase(String lower) {
+        if (lower == null || lower.isBlank()) return false;
+        boolean hasDigit = lower.chars().anyMatch(Character::isDigit);
+        if (!hasDigit) return false;
+        return lower.contains("запиш") || lower.contains("добав") || lower.contains("расход")
+                || lower.contains("доход") || lower.contains("потрат") || lower.contains("купил")
+                || lower.contains("оплат") || lower.contains("тенге") || lower.contains("₸")
+                || lower.contains(" на ") || lower.matches(".*\\d{2,}.*");
     }
 
     private static UUID parseUuid(String raw) {

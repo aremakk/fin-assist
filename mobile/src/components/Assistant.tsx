@@ -1,173 +1,15 @@
-import React, { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useAssistant } from '../store/AssistantContext';
 import { formatMoney } from '../utils/format';
-import { colors, spacing } from '../utils/theme';
+import { spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
 
-export function AssistantBanner() {
-  const { alerts, dismissAlert, applyAction } = useAssistant();
-  const alert = alerts[0];
-  if (!alert) return null;
-
-  return (
-    <View style={[styles.banner, alert.severity === 'warning' && styles.bannerWarn]}>
-      <View style={styles.bannerBody}>
-        <Text style={styles.bannerTitle}>{alert.title}</Text>
-        <Text style={styles.bannerText}>{alert.body}</Text>
-        {alert.action?.route ? (
-          <Pressable
-            onPress={() =>
-              applyAction({
-                type: 'NAVIGATE',
-                route: alert.action!.route,
-                needsConfirm: false,
-              })
-            }
-          >
-            <Text style={styles.bannerLink}>Открыть →</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      <Pressable onPress={() => dismissAlert(alert.id)} hitSlop={10}>
-        <Text style={styles.bannerClose}>✕</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-export function AssistantHintCard() {
-  const {
-    hints,
-    reply,
-    busy,
-    composerOpen,
-    setComposerOpen,
-    runAssist,
-    error,
-    listening,
-    wallEActive,
-    transcript,
-    startListening,
-    stopListening,
-    voiceAvailable,
-  } = useAssistant();
-  const [text, setText] = useState('');
-  const hint = hints[0] || reply;
-
-  const statusLine = listening
-    ? wallEActive
-      ? 'Слушаю команду…'
-      : 'Скажите «Валли»…'
-    : wallEActive
-      ? 'Валли на связи'
-      : null;
-
-  return (
-    <View style={[styles.hint, (listening || wallEActive) && styles.hintActive]}>
-      <View style={styles.hintTop}>
-        <Text style={styles.hintKicker}>ВАЛЛИ</Text>
-        {voiceAvailable ? (
-          <Pressable
-            onPress={() => {
-              if (listening) stopListening();
-              else startListening();
-            }}
-          >
-            <Text style={styles.hintSay}>
-              {listening ? 'Стоп' : '🎙 Слушать'}
-            </Text>
-          </Pressable>
-        ) : (
-          <Text style={styles.hintSay}>Текст</Text>
-        )}
-      </View>
-
-      {statusLine ? <Text style={styles.status}>{statusLine}</Text> : null}
-      {listening && transcript ? (
-        <Text style={styles.transcript}>«{transcript}»</Text>
-      ) : null}
-
-      {hint ? <Text style={styles.hintText}>{hint}</Text> : (
-        <Text style={styles.hintText}>
-          {voiceAvailable
-            ? 'Скажите «Валли, запиши 2000 на такси» — добавлю сама.'
-            : 'Голос заработает после установки через Xcode. Пока можно написать команду.'}
-        </Text>
-      )}
-      {error ? <Text style={styles.hintError}>{error}</Text> : null}
-
-      <Pressable onPress={() => setComposerOpen(!composerOpen)} style={styles.textToggle}>
-        <Text style={styles.hintSay}>{composerOpen ? 'Скрыть текст' : 'Написать…'}</Text>
-      </Pressable>
-
-      {composerOpen ? (
-        <View style={styles.composerRow}>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder="Валли, запиши 2000 на такси"
-            placeholderTextColor={colors.textMuted}
-            style={styles.input}
-            editable={!busy}
-            onSubmitEditing={() => {
-              const q = text;
-              setText('');
-              runAssist(q.replace(/^валли[,.\s]*/i, '').trim() || q, { autoConfirm: false });
-            }}
-            returnKeyType="send"
-          />
-          <Pressable
-            style={[styles.send, (!text.trim() || busy) && styles.sendDisabled]}
-            disabled={!text.trim() || busy}
-            onPress={() => {
-              const q = text;
-              setText('');
-              runAssist(q.replace(/^валли[,.\s]*/i, '').trim() || q, { autoConfirm: false });
-            }}
-          >
-            <Text style={styles.sendArrow}>{busy ? '…' : '→'}</Text>
-          </Pressable>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-export function AssistConfirmSheet() {
-  const { pendingConfirm, confirmCreate, dismissConfirm, busy } = useAssistant();
-  if (!pendingConfirm) return null;
-  const d = pendingConfirm.draft;
-  const label = [
-    d.type === 'INCOME' ? 'Доход' : 'Расход',
-    formatMoney(Number(d.amount)),
-    d.categoryName || null,
-    d.note || null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  return (
-    <Modal transparent animationType="fade" visible onRequestClose={dismissConfirm}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.sheet}>
-          <Text style={styles.sheetKicker}>ВАЛЛИ · ПОДТВЕРДИТЕ</Text>
-          <Text style={styles.sheetTitle}>Записать операцию?</Text>
-          <Text style={styles.sheetBody}>{label}</Text>
-          <View style={styles.sheetRow}>
-            <Pressable style={styles.sheetSecondary} onPress={dismissConfirm} disabled={busy}>
-              <Text style={styles.sheetSecondaryText}>Отмена</Text>
-            </Pressable>
-            <Pressable style={styles.sheetPrimary} onPress={confirmCreate} disabled={busy}>
-              <Text style={styles.sheetPrimaryText}>{busy ? '…' : 'Да, записать'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-const styles = StyleSheet.create({
+function useAssistantStyles() {
+  const { colors } = useTheme();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -231,7 +73,7 @@ const styles = StyleSheet.create({
   sendArrow: { color: colors.ink, fontSize: 18, fontWeight: '800' },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
     padding: spacing.lg,
   },
@@ -265,4 +107,185 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sheetPrimaryText: { color: colors.ink, fontWeight: '800' },
-});
+}),
+    [colors]
+  );
+  return { colors, styles };
+}
+
+export function AssistantBanner() {
+  const { colors, styles } = useAssistantStyles();
+
+
+  const { alerts, dismissAlert, applyAction } = useAssistant();
+  const alert = alerts[0];
+  if (!alert) return null;
+
+  return (
+    <View style={[styles.banner, alert.severity === 'warning' && styles.bannerWarn]}>
+      <View style={styles.bannerBody}>
+        <Text style={styles.bannerTitle}>{alert.title}</Text>
+        <Text style={styles.bannerText}>{alert.body}</Text>
+        {alert.action?.route ? (
+          <Pressable
+            onPress={() =>
+              applyAction({
+                type: 'NAVIGATE',
+                route: alert.action!.route,
+                needsConfirm: false,
+              })
+            }
+          >
+            <Text style={styles.bannerLink}>Открыть →</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <Pressable onPress={() => dismissAlert(alert.id)} hitSlop={10}>
+        <Text style={styles.bannerClose}>✕</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export function AssistantHintCard() {
+  const { colors, styles } = useAssistantStyles();
+  const {
+    hints,
+    reply,
+    busy,
+    composerOpen,
+    setComposerOpen,
+    runAssist,
+    error,
+    listening,
+    wallEActive,
+    transcript,
+    startListening,
+    stopListening,
+    voiceAvailable,
+  } = useAssistant();
+  const [text, setText] = useState('');
+  const hint = hints[0] || reply;
+
+  const statusLine = listening
+    ? wallEActive
+      ? 'Слушаю команду…'
+      : 'Скажите «Валли»…'
+    : wallEActive
+      ? 'Валли на связи'
+      : null;
+
+  return (
+    <View style={[styles.hint, (listening || wallEActive) && styles.hintActive]}>
+      <View style={styles.hintTop}>
+        <Text style={styles.hintKicker}>ВАЛЛИ</Text>
+        {voiceAvailable ? (
+          <Pressable
+            onPress={() => {
+              if (listening) stopListening();
+              else startListening();
+            }}
+          >
+            <Text style={styles.hintSay}>
+              {listening ? 'Стоп' : '🎙 Слушать'}
+            </Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.hintSay}>Текст</Text>
+        )}
+      </View>
+
+      {statusLine ? <Text style={styles.status}>{statusLine}</Text> : null}
+      {listening && transcript ? (
+        <Text style={styles.transcript}>«{transcript}»</Text>
+      ) : null}
+
+      {hint ? <Text style={styles.hintText}>{hint}</Text> : (
+        <Text style={styles.hintText}>
+          {voiceAvailable
+            ? 'Скажите «Валли, 2000 на такси» — запишу сразу.'
+            : 'Голос заработает после установки через Xcode. Пока можно написать команду.'}
+        </Text>
+      )}
+      {error ? <Text style={styles.hintError}>{error}</Text> : null}
+
+      <Pressable onPress={() => setComposerOpen(!composerOpen)} style={styles.textToggle}>
+        <Text style={styles.hintSay}>{composerOpen ? 'Скрыть текст' : 'Написать…'}</Text>
+      </Pressable>
+
+      {composerOpen ? (
+        <View style={styles.composerRow}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder="Валли, запиши 2000 на такси"
+            placeholderTextColor={colors.textMuted}
+            style={styles.input}
+            editable={!busy}
+            onSubmitEditing={() => {
+              const q = text;
+              setText('');
+              runAssist(q.replace(/^валли[,.\s]*/i, '').trim() || q, { autoConfirm: true });
+            }}
+            returnKeyType="send"
+          />
+          <Pressable
+            style={[styles.send, (!text.trim() || busy) && styles.sendDisabled]}
+            disabled={!text.trim() || busy}
+            onPress={() => {
+              const q = text;
+              setText('');
+              runAssist(q.replace(/^валли[,.\s]*/i, '').trim() || q, { autoConfirm: true });
+            }}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color={colors.ink} />
+            ) : (
+              <Text style={styles.sendArrow}>→</Text>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export function AssistConfirmSheet() {
+  const { colors, styles } = useAssistantStyles();
+  const { pendingConfirm, confirmCreate, dismissConfirm, busy } = useAssistant();
+  if (!pendingConfirm) return null;
+  const d = pendingConfirm.draft;
+  const label = [
+    d.type === 'INCOME' ? 'Доход' : 'Расход',
+    formatMoney(Number(d.amount)),
+    d.categoryName || null,
+    d.note || null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={dismissConfirm}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.sheet}>
+          <Text style={styles.sheetKicker}>ВАЛЛИ · ПОДТВЕРДИТЕ</Text>
+          <Text style={styles.sheetTitle}>Записать операцию?</Text>
+          <Text style={styles.sheetBody}>{label}</Text>
+          <View style={styles.sheetRow}>
+            <Pressable style={styles.sheetSecondary} onPress={dismissConfirm} disabled={busy}>
+              <Text style={styles.sheetSecondaryText}>Отмена</Text>
+            </Pressable>
+            <Pressable style={styles.sheetPrimary} onPress={confirmCreate} disabled={busy}>
+              {busy ? (
+                <ActivityIndicator size="small" color={colors.ink} />
+              ) : (
+                <Text style={styles.sheetPrimaryText}>Да, записать</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+

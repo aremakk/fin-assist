@@ -8,7 +8,8 @@ services:
       POSTGRES_USER: budget
       POSTGRES_PASSWORD: budget
     ports:
-      - "5432:5432"
+      # Avoid clash with other local Postgres (5432/5433)
+      - "55432:5432"
     volumes:
       - budget_pg_data:/var/lib/postgresql/data
     healthcheck:

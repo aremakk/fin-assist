@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "plugins": [
       [
         "expo-speech-recognition",
@@ -17,6 +17,11 @@
     ],
     "ios": {
       "supportsTablet": true,
+      "icon": {
+        "light": "./assets/icon-light.png",
+        "dark": "./assets/icon-dark.png",
+        "tinted": "./assets/icon-tinted.png"
+      },
       "bundleIdentifier": "com.budgetapp.finassist",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Валли нужна запись голоса, чтобы добавлять расходы по команде.",

@@ -1,13 +1,34 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { walletsApi } from '../api';
 import { Button, EmptyState, ErrorText, Input, Loading, Screen } from '../components/ui';
+import { renderKeyboardScrollView } from '../components/KeyboardScreen';
 import type { Wallet } from '../types';
 import { formatMoney, getErrorMessage } from '../utils/format';
-import { colors, spacing } from '../utils/theme';
+import { spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
 
 export function WalletsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => StyleSheet.create({
+  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
+  heading: { color: colors.text, fontSize: 32, fontWeight: '900', letterSpacing: -1.2, marginBottom: 8 },
+  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  name: { fontWeight: '700', color: colors.text, fontSize: 15 },
+  meta: { color: colors.textMuted, marginTop: 4, fontSize: 12 },
+  action: { color: colors.primary, fontWeight: '700', fontSize: 13 },
+}), [colors]);
+
   const [items, setItems] = useState<Wallet[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -16,6 +37,7 @@ export function WalletsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [saving, setSaving] = useState(false);
+  const listRef = useRef<FlatList<Wallet>>(null);
 
   const load = useCallback(async () => {
     try {
@@ -97,42 +119,50 @@ export function WalletsScreen() {
 
   return (
     <Screen>
-      <Text style={styles.kicker}>ПРОСТРАНСТВО / КОШЕЛЬКИ</Text>
-      <Text style={styles.heading}>Ваши счета.</Text>
-      <Text style={styles.intro}>Все суммы в тенге (₸).</Text>
-      <ErrorText>{error}</ErrorText>
-      <Input label="Новый кошелёк" value={name} onChangeText={setName} placeholder="Название" />
-      <Button title="Добавить" onPress={create} loading={saving} />
-
-      {editingId ? (
-        <View style={{ marginTop: spacing.md }}>
-          <Input label="Новое название" value={editingName} onChangeText={setEditingName} />
-          <Button title="Сохранить название" onPress={saveRename} loading={saving} />
-          <Button
-            title="Отмена"
-            variant="secondary"
-            onPress={() => {
-              setEditingId(null);
-              setEditingName('');
-            }}
-          />
-        </View>
-      ) : null}
-
       <FlatList
-        style={{ marginTop: spacing.md }}
+        ref={listRef}
+        renderScrollComponent={renderKeyboardScrollView}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        contentContainerStyle={{ paddingBottom: spacing.lg }}
         data={items}
         keyExtractor={(item) => item.id}
+        ListHeaderComponent={
+          <>
+            <Text style={styles.kicker}>ПРОСТРАНСТВО / КОШЕЛЬКИ</Text>
+            <Text style={styles.heading}>Ваши счета.</Text>
+            <Text style={styles.intro}>Все суммы в тенге (₸).</Text>
+            <ErrorText>{error}</ErrorText>
+            <Input label="Новый кошелёк" value={name} onChangeText={setName} placeholder="Название" />
+            <Button title="Добавить" onPress={create} loading={saving} />
+
+            {editingId ? (
+              <View style={{ marginTop: spacing.md }}>
+                <Input key={editingId} autoFocus label="Новое название" value={editingName} onChangeText={setEditingName} />
+                <Button title="Сохранить название" onPress={saveRename} loading={saving} />
+                <Button
+                  title="Отмена"
+                  variant="secondary"
+                  onPress={() => {
+                    setEditingId(null);
+                    setEditingName('');
+                  }}
+                />
+              </View>
+            ) : null}
+          </>
+        }
+        ListHeaderComponentStyle={{ marginBottom: spacing.md }}
         ListEmptyComponent={<EmptyState title="Кошельков нет" hint="Создайте первый счёт для учёта" />}
-        renderItem={({ item, index }) => (
+        renderItem={({ item }) => (
           <View style={styles.item}>
-            <Text style={styles.index}>{String(index + 1).padStart(2, '0')}</Text>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.name}>{item.name}</Text>
               <Text style={styles.meta}>{formatMoney(balances[item.id] ?? 0, item.currency)}</Text>
             </View>
             <Pressable
               onPress={() => {
+                listRef.current?.scrollToOffset({ offset: 0, animated: false });
                 setEditingId(item.id);
                 setEditingName(item.name);
               }}
@@ -148,22 +178,3 @@ export function WalletsScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
-  heading: { color: colors.text, fontSize: 32, fontWeight: '900', letterSpacing: -1.2, marginBottom: 8 },
-  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  index: { color: colors.primary, fontSize: 11, fontWeight: '800', width: 22 },
-  name: { fontWeight: '700', color: colors.text, fontSize: 15 },
-  meta: { color: colors.textMuted, marginTop: 4, fontSize: 12 },
-  action: { color: colors.primary, fontWeight: '700', fontSize: 13 },
-});

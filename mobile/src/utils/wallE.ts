@@ -6,15 +6,21 @@ export function parseWallECommand(raw: string): { woke: boolean; command: string
   const normalized = text
     .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/[«»""]/g, ' ')
+    .replace(/[«»""']/g, ' ')
+    .replace(/[,.!?;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
+  // Common STT variants for «Валли»
   const wakePatterns = [
-    /^валли\b[,.\s!:-]*/,
-    /^wall[\s-]?e\b[,.\s!:-]*/,
-    /^walle\b[,.\s!:-]*/,
-    /^вали\b[,.\s!:-]*/, // common STT misspelling
+    /^валли\b\s*/,
+    /^вали\b\s*/,
+    /^валя\b\s*/,
+    /^вольи\b\s*/,
+    /^волли\b\s*/,
+    /^wall[\s-]?e\b\s*/,
+    /^walle\b\s*/,
+    /^wali\b\s*/,
   ];
 
   for (const pattern of wakePatterns) {
@@ -24,14 +30,24 @@ export function parseWallECommand(raw: string): { woke: boolean; command: string
     }
   }
 
-  // wake word somewhere in the phrase
-  if (/\bвалли\b|\bвали\b|\bwall[\s-]?e\b|\bwalle\b/.test(normalized)) {
+  if (/\b(валли|вали|валя|вольи|волли|wali|walle|wall[\s-]?e)\b/.test(normalized)) {
     const command = normalized
-      .replace(/\bвалли\b|\bвали\b|\bwall[\s-]?e\b|\bwalle\b/gi, ' ')
+      .replace(/\b(валли|вали|валя|вольи|волли|wali|walle|wall[\s-]?e)\b/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     return { woke: true, command };
   }
 
   return { woke: false, command: text };
+}
+
+/** Heuristic: spoken phrase looks like an expense/income to record. */
+export function looksLikeTransactionCommand(text: string): boolean {
+  const t = (text || '').toLowerCase();
+  if (!t.trim()) return false;
+  if (/\d/.test(t) && /(запиш|добав|потрат|купил|оплат|расход|доход|тенге|₸|\bна\b)/.test(t)) {
+    return true;
+  }
+  // bare "2000 такси" / "две тысячи на еду" with digits
+  return /\d{2,}/.test(t) && t.length <= 80;
 }

@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { categoriesApi, transactionsApi, walletsApi } from '../api';
 import { Button, ErrorText, Input, Loading, Screen } from '../components/ui';
+import { KeyboardScrollView } from '../components/KeyboardScreen';
 import { AssistantHintCard } from '../components/Assistant';
 import { useAssistantScreen } from '../hooks/useAssistantScreen';
 import { RootStackParamList } from '../navigation/types';
 import type { Category, MoneyType, Wallet } from '../types';
 import { formatDate, getErrorMessage, moneyTypeLabel } from '../utils/format';
-import { colors, spacing } from '../utils/theme';
+import { spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TransactionForm'>;
 
@@ -20,6 +22,38 @@ function startOfDayIso(daysAgo = 0): string {
 }
 
 export function TransactionFormScreen({ navigation, route }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => StyleSheet.create({
+  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
+  heading: { color: colors.text, fontSize: 32, fontWeight: '900', letterSpacing: -1.2, marginBottom: 8 },
+  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
+  row: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
+  chip: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 13,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { fontWeight: '600', color: colors.textMuted },
+  chipTextActive: { color: colors.ink },
+  label: { fontWeight: '700', color: colors.text, marginBottom: 8 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.md },
+  option: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 13,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  optionActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  optionText: { color: colors.text, fontWeight: '600' },
+}), [colors]);
+
   const id = route.params?.id;
   useAssistantScreen('TransactionForm');
   const [loading, setLoading] = useState(true);
@@ -133,7 +167,7 @@ export function TransactionFormScreen({ navigation, route }: Props) {
 
   return (
     <Screen>
-      <ScrollView>
+      <KeyboardScrollView contentContainerStyle={{ paddingBottom: spacing.lg }}>
         <Text style={styles.kicker}>ОПЕРАЦИЯ / {id ? 'ПРАВКА' : 'НОВАЯ'}</Text>
         <Text style={styles.heading}>{id ? 'Редактирование.' : 'Новая запись.'}</Text>
         <Text style={styles.intro}>Сумма в тенге{selectedWallet ? ` · ${selectedWallet.name}` : ''}.</Text>
@@ -205,38 +239,7 @@ export function TransactionFormScreen({ navigation, route }: Props) {
         <Button title="Сохранить" onPress={save} loading={saving} />
         {id ? <Button title="Удалить" variant="danger" onPress={remove} /> : null}
         <Button title="Отмена" variant="secondary" onPress={() => navigation.goBack()} />
-      </ScrollView>
+      </KeyboardScrollView>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
-  heading: { color: colors.text, fontSize: 32, fontWeight: '900', letterSpacing: -1.2, marginBottom: 8 },
-  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
-  row: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
-  chip: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 13,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontWeight: '600', color: colors.textMuted },
-  chipTextActive: { color: colors.ink },
-  label: { fontWeight: '700', color: colors.text, marginBottom: 8 },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.md },
-  option: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 13,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  optionActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
-  optionText: { color: colors.text, fontWeight: '600' },
-});

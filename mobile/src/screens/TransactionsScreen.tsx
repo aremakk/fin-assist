@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -6,12 +6,14 @@ import { categoriesApi, transactionsApi, walletsApi } from '../api';
 import { Button, EmptyState, ErrorText, Loading, Screen, Title, brandRefreshProps } from '../components/ui';
 import { AssistantBanner, AssistantHintCard } from '../components/Assistant';
 import { BrandRefreshOverlay } from '../components/BrandLoader';
+import { renderKeyboardScrollView } from '../components/KeyboardScreen';
 import { useAssistantScreen } from '../hooks/useAssistantScreen';
+import { useBrandPullRefresh } from '../hooks/useBrandPullRefresh';
 import { RootStackParamList } from '../navigation/types';
 import type { Category, MoneyType, Transaction, Wallet } from '../types';
 import { DEFAULT_CURRENCY, formatDate, formatMoney, getErrorMessage, moneyTypeLabel, monthRange } from '../utils/format';
-import { createBrandRefreshGate } from '../utils/refreshHold';
-import { colors, spacing } from '../utils/theme';
+import { spacing } from '../utils/theme';
+import { useTheme } from '../store/ThemeContext';
 
 const filters: { key: 'ALL' | MoneyType; label: string }[] = [
   { key: 'ALL', label: 'Все' },
@@ -20,6 +22,63 @@ const filters: { key: 'ALL' | MoneyType; label: string }[] = [
 ];
 
 export function TransactionsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => StyleSheet.create({
+  screen: { padding: 0 },
+  flex: { flex: 1 },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: 36,
+    flexGrow: 1,
+  },
+  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
+  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
+  filters: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 13,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { color: colors.textMuted, fontWeight: '600' },
+  chipTextActive: { color: colors.ink },
+  period: { marginBottom: spacing.sm },
+  periodText: { color: colors.primary, fontWeight: '700', fontSize: 12 },
+  assistantBlock: { marginTop: spacing.md },
+  listLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  item: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  number: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  numberText: { color: colors.primary, fontSize: 22 },
+  note: { fontWeight: '700', color: colors.text, fontSize: 14 },
+  meta: { color: colors.textMuted, marginTop: 4, fontSize: 11 },
+}), [colors]);
+
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   useAssistantScreen('Transactions');
   const [items, setItems] = useState<Transaction[]>([]);
@@ -28,16 +87,18 @@ export function TransactionsScreen() {
   const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
   const [type, setType] = useState<'ALL' | MoneyType>('ALL');
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [pullProgress, setPullProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [periodOnly, setPeriodOnly] = useState(true);
-  const refreshGate = useRef(
-    createBrandRefreshGate(() => {
-      setRefreshing(false);
-      setPullProgress(0);
-    })
-  ).current;
+  const {
+    refreshing,
+    dataReady,
+    pullProgress,
+    startRefresh,
+    onPullScroll,
+    armRefresh,
+    markDataReady,
+    markAnimReady,
+  } = useBrandPullRefresh();
 
   const load = useCallback(async (isRefresh = false) => {
     try {
@@ -61,13 +122,11 @@ export function TransactionsScreen() {
       setError(getErrorMessage(e));
     } finally {
       setLoading(false);
-      if (isRefresh) {
-        refreshGate.markDataReady();
-      } else {
-        setRefreshing(false);
-      }
+      if (isRefresh) markDataReady();
     }
-  }, [type, periodOnly, refreshGate]);
+  }, [type, periodOnly, markDataReady]);
+
+  armRefresh(() => load(true));
 
   useFocusEffect(
     useCallback(() => {
@@ -78,27 +137,19 @@ export function TransactionsScreen() {
 
   if (loading) return <Loading />;
 
-  const startRefresh = () => {
-    refreshGate.reset();
-    setRefreshing(true);
-    load(true);
-  };
-
   return (
     <Screen style={styles.screen} safeTop>
       <View style={styles.flex}>
         <FlatList
+          renderScrollComponent={renderKeyboardScrollView}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           data={items}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
-          onScroll={(e) => {
-            if (refreshing) return;
-            const y = e.nativeEvent.contentOffset.y;
-            if (y < 0) setPullProgress(Math.min(1, -y / 90));
-            else setPullProgress(0);
-          }}
+          onScroll={onPullScroll}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -108,7 +159,7 @@ export function TransactionsScreen() {
           }
           ListHeaderComponent={
             <>
-              <Text style={styles.kicker}>ЖУРНАЛ / 02</Text>
+              <Text style={styles.kicker}>ЖУРНАЛ</Text>
               <Title>История денег.</Title>
               <Text style={styles.intro}>Каждое движение — под вашим контролем. Суммы в тенге.</Text>
               <View style={styles.filters}>
@@ -182,66 +233,11 @@ export function TransactionsScreen() {
         />
         <BrandRefreshOverlay
           visible={refreshing}
+          complete={dataReady}
           progress={pullProgress}
-          onFinished={() => refreshGate.markAnimReady()}
+          onFinished={markAnimReady}
         />
       </View>
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: { padding: 0 },
-  flex: { flex: 1 },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: 36,
-    flexGrow: 1,
-  },
-  kicker: { color: colors.primary, fontSize: 10, fontWeight: '900', letterSpacing: 1.5, marginBottom: 10 },
-  intro: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.lg },
-  filters: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 13,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { color: colors.textMuted, fontWeight: '600' },
-  chipTextActive: { color: colors.ink },
-  period: { marginBottom: spacing.sm },
-  periodText: { color: colors.primary, fontWeight: '700', fontSize: 12 },
-  assistantBlock: { marginTop: spacing.md },
-  listLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  item: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  number: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceRaised,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  numberText: { color: colors.primary, fontSize: 22 },
-  note: { fontWeight: '700', color: colors.text, fontSize: 14 },
-  meta: { color: colors.textMuted, marginTop: 4, fontSize: 11 },
-});

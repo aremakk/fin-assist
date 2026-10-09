@@ -1,10 +1,12 @@
 import React, { useRef } from 'react';
-import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, NavigationContainerRef, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '../store/AuthContext';
 import { useAssistant } from '../store/AssistantContext';
+import { useTheme } from '../store/ThemeContext';
 import { Loading } from '../components/ui';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
@@ -17,25 +19,55 @@ import { TransactionFormScreen } from '../screens/TransactionFormScreen';
 import { CategoriesScreen } from '../screens/CategoriesScreen';
 import { WalletsScreen } from '../screens/WalletsScreen';
 import { AuthStackParamList, MainTabParamList, RootStackParamList } from './types';
-import { colors } from '../utils/theme';
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
+const tabIconPaths: Record<keyof MainTabParamList, string> = {
+  Home: 'M3 10 12 3 21 10M5 9v11h5v-6h4v6h5V9',
+  Transactions: 'M7 4v16m-4-4 4 4 4-4M17 20V4m-4 4 4-4 4 4',
+  Stats: 'M5 20v-7m7 7V4m7 16V9',
+  Insights: 'M12 3 14.5 9.5 21 12 14.5 14.5 12 21 9.5 14.5 3 12 9.5 9.5Z',
+  Profile: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM5 21v-2a7 7 0 0 1 14 0v2',
+};
+
+function TabIcon({ name, focused }: { name: keyof MainTabParamList; focused: boolean }) {
+  const { colors } = useTheme();
   return (
-    <View style={[styles.tabIcon, focused && styles.tabIconActive]}>
-      <Text style={[styles.tabIconText, focused && styles.tabIconTextActive]}>{label}</Text>
+    <View
+      style={{
+        width: 32,
+        height: 27,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: focused ? colors.primary : 'transparent',
+      }}
+    >
+      <Svg
+        width={20}
+        height={20}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={focused ? colors.ink : colors.textMuted}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <Path d={tabIconPaths[name]} />
+      </Svg>
     </View>
   );
 }
 
 function MainTabs() {
+  const { colors } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
@@ -54,7 +86,7 @@ function MainTabs() {
         component={HomeScreen}
         options={{
           title: 'Главная',
-          tabBarIcon: ({ focused }) => <TabIcon label="01" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="Home" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -62,7 +94,7 @@ function MainTabs() {
         component={TransactionsScreen}
         options={{
           title: 'Операции',
-          tabBarIcon: ({ focused }) => <TabIcon label="02" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="Transactions" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -70,7 +102,7 @@ function MainTabs() {
         component={StatsScreen}
         options={{
           title: 'Статистика',
-          tabBarIcon: ({ focused }) => <TabIcon label="03" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="Stats" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -78,7 +110,7 @@ function MainTabs() {
         component={InsightsScreen}
         options={{
           title: 'ИИ',
-          tabBarIcon: ({ focused }) => <TabIcon label="AI" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="Insights" focused={focused} />,
         }}
       />
       <Tab.Screen
@@ -86,7 +118,7 @@ function MainTabs() {
         component={ProfileScreen}
         options={{
           title: 'Профиль',
-          tabBarIcon: ({ focused }) => <TabIcon label="05" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="Profile" focused={focused} />,
         }}
       />
     </Tab.Navigator>
@@ -103,6 +135,7 @@ function AuthNavigator() {
 }
 
 function AppNavigator() {
+  const { colors } = useTheme();
   return (
     <RootStack.Navigator
       screenOptions={{
@@ -124,24 +157,36 @@ function AppNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabIcon: { width: 32, height: 27, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  tabIconActive: { backgroundColor: colors.primary },
-  tabIconText: { color: colors.textMuted, fontSize: 11, fontWeight: '800' },
-  tabIconTextActive: { color: colors.ink },
-});
-
 export function RootNavigator() {
   const { user, loading } = useAuth();
   const { setNavigationRef } = useAssistant();
+  const { colors, scheme } = useTheme();
   const navRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
+
+  const navTheme = {
+    ...(scheme === 'light' ? DefaultTheme : DarkTheme),
+    colors: {
+      ...(scheme === 'light' ? DefaultTheme.colors : DarkTheme.colors),
+      primary: colors.primary,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.border,
+      notification: colors.danger,
+    },
+  };
 
   if (loading) {
     return <Loading />;
   }
 
   return (
-    <NavigationContainer ref={navRef} onReady={() => setNavigationRef(navRef.current)}>
+    <NavigationContainer
+      key={scheme}
+      theme={navTheme}
+      ref={navRef}
+      onReady={() => setNavigationRef(navRef.current)}
+    >
       {user ? <AppNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );

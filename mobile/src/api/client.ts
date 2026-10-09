@@ -26,7 +26,8 @@ export const tokenStorage = {
 
 export const api = create({
   baseURL: API_BASE_URL,
-  timeout: 45000,
+  // Free Render + Neon cold start can take >45s
+  timeout: 120000,
   headers: { 'Content-Type': 'application/json' },
 });
 

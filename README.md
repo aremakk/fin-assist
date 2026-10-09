@@ -61,11 +61,14 @@ npm install
 npx expo start
 ```
 
-API URL задаётся в `mobile/src/utils/config.ts`:
+По умолчанию приложение обращается к продакшен API на Render, включая запуск через Xcode.
+Для локального Spring Boot на порту `8090` запустите Metro с
+`EXPO_PUBLIC_USE_LOCAL_API=true npx expo start`. Адрес устройства берётся из URL Metro,
+а для симулятора используется `localhost`. После переключения адреса перезагрузите приложение.
 
-- iOS Simulator: `http://localhost:8080/api/v1`
-- Android Emulator: `http://10.0.2.2:8080/api/v1`
-- Физическое устройство: замените host на IP вашего Mac в локальной сети
+После добавления нативного модуля `expo-haptics` установите новую iOS-сборку через
+`mobile/ios/FinAssist.xcworkspace` в Xcode; обновление одного JavaScript-бандла
+не добавит модуль в уже установленное приложение.
 
 ## MVP возможности
 

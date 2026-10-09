@@ -1,7 +1,7 @@
 import { NativeModules, Platform } from 'react-native';
 
 /**
- * Resolve API host for simulator / emulator / Expo Go on a physical device.
+ * Resolve API host for simulator / emulator / device.
  * - iOS Simulator: localhost
  * - Android Emulator: 10.0.2.2
  * - Physical device: Mac LAN IP from Metro (or DEV_HOST fallback)
@@ -12,8 +12,14 @@ const DEV_HOST = '172.20.10.2';
 /** FinAssist local port — 8080 may be taken by another app */
 const API_PORT = 8090;
 
-/** Use local API only while developing against Metro / local Spring Boot. */
-const USE_LOCAL_API = false;
+/**
+ * Local API while developing (__DEV__).
+ * Release / production builds use Render unless EXPO_PUBLIC_USE_LOCAL_API=true.
+ */
+const USE_LOCAL_API =
+  typeof __DEV__ !== 'undefined' && __DEV__
+    ? true
+    : process.env.EXPO_PUBLIC_USE_LOCAL_API === 'true';
 
 function resolveHost(): string {
   const scriptURL = NativeModules.SourceCode?.scriptURL as string | undefined;
@@ -21,7 +27,6 @@ function resolveHost(): string {
     const match = scriptURL.match(/https?:\/\/([^/:]+)(?::\d+)?/);
     const host = match?.[1];
     if (host) {
-      // Simulator / desktop packager
       if (host === 'localhost' || host === '127.0.0.1') {
         return Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
       }
@@ -33,10 +38,11 @@ function resolveHost(): string {
     return '10.0.2.2';
   }
 
-  // Physical device fallback when ScriptURL is unavailable
   return DEV_HOST || 'localhost';
 }
 
 export const API_BASE_URL = USE_LOCAL_API
   ? `http://${resolveHost()}:${API_PORT}/api/v1`
   : 'https://fin-assist-p2gq.onrender.com/api/v1';
+
+export const IS_LOCAL_API = USE_LOCAL_API;

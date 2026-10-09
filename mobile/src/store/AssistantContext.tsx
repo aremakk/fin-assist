@@ -13,7 +13,12 @@ import { insightsApi } from '../api';
 import type { AssistAction, ProactiveAlert, TransactionDraft } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 import { getErrorMessage } from '../utils/format';
-import { looksLikeTransactionCommand, parseWallECommand } from '../utils/wallE';
+import { lightHaptic, successHaptic } from '../utils/haptics';
+import {
+  looksLikeTransactionCommand,
+  parseWallECommand,
+  toAssistRecordMessage,
+} from '../utils/wallE';
 import { useWallEVoice } from '../hooks/useWallEVoice';
 
 export type { TransactionDraft };
@@ -38,6 +43,7 @@ type AssistantContextValue = {
   error: string | null;
   listening: boolean;
   wallEActive: boolean;
+  manualVoiceActive: boolean;
   transcript: string;
   voiceAvailable: boolean;
   setNavigationRef: (ref: NavigationContainerRef<RootStackParamList> | null) => void;
@@ -53,6 +59,10 @@ type AssistantContextValue = {
   stopListening: () => void;
   pauseAmbient: () => void;
   resumeAmbient: () => void;
+  /** Mic button: hard stop ambient + wake session. */
+  stopVoice: () => void;
+  /** Mic button: start listening again. */
+  startVoice: () => void;
 };
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -71,15 +81,20 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [wallEActive, setWallEActive] = useState(false);
+  const [manualVoiceActive, setManualVoiceActive] = useState(false);
   const [transcript, setTranscript] = useState('');
   const dismissed = useRef<Set<string>>(new Set());
   const wallEActiveRef = useRef(false);
+  const manualVoiceRef = useRef(false);
+  const wakeHapticPendingRef = useRef(false);
   const handlingRef = useRef(false);
   const busyRef = useRef(false);
   const screenRef = useRef(screen);
-  screenRef.current = screen;
-  wallEActiveRef.current = wallEActive;
-  busyRef.current = busy;
+  useEffect(() => {
+    screenRef.current = screen;
+    wallEActiveRef.current = wallEActive;
+    busyRef.current = busy;
+  }, [screen, wallEActive, busy]);
 
   const setNavigationRef = useCallback((ref: NavigationContainerRef<RootStackParamList> | null) => {
     navRef.current = ref;
@@ -146,11 +161,15 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const confirmDraft = useCallback(async (draft: TransactionDraft) => {
+    const amount = Number(draft.amount);
+    if (!Number.isFinite(amount) || amount < 0.01) {
+      throw new Error('Не поняла сумму');
+    }
     const res = await insightsApi.confirmAssist({
       type: 'CREATE_TRANSACTION',
       draft: {
-        amount: Number(draft.amount),
-        type: draft.type,
+        amount,
+        type: draft.type || 'EXPENSE',
         note: draft.note || undefined,
         categoryId: draft.categoryId || undefined,
         walletId: draft.walletId || undefined,
@@ -159,6 +178,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setReply(res.reply);
     setHints([res.reply]);
     setPendingConfirm(null);
+    void successHaptic();
     await refreshProactive();
   }, [refreshProactive]);
 
@@ -170,19 +190,43 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       setBusy(true);
       setError(null);
       try {
-        const res = await insightsApi.assist({ message: text, screen: screenRef.current });
+        const primary = opts?.autoConfirm ? toAssistRecordMessage(text) : text;
+        let res = await insightsApi.assist({ message: primary, screen: screenRef.current });
+        let actions = res.actions || [];
+
+        // Voice: if model/backend skipped CREATE, retry once with explicit «запиши»
+        if (
+          opts?.autoConfirm &&
+          looksLikeTransactionCommand(text) &&
+          !actions.some((a) => a.type === 'CREATE_TRANSACTION' && a.draft)
+        ) {
+          const retryMsg = primary.startsWith('запиши') ? primary : `запиши ${text}`;
+          if (retryMsg !== primary) {
+            res = await insightsApi.assist({ message: retryMsg, screen: screenRef.current });
+            actions = res.actions || [];
+          }
+        }
+
         setReply(res.reply);
         if (res.hints?.length) setHints(res.hints);
-        const actions = res.actions || [];
         if (actions.length === 0 && res.reply) {
           setHints([res.reply]);
         }
+
+        let created = false;
         for (const action of actions) {
           if (opts?.autoConfirm && action.type === 'CREATE_TRANSACTION' && action.draft) {
             await confirmDraft(action.draft);
+            created = true;
           } else {
             applyAction(action);
           }
+        }
+
+        if (opts?.autoConfirm && looksLikeTransactionCommand(text) && !created) {
+          setError(
+            'Услышала, но не записала. Проверьте кошелёк или скажите: «Валли, запиши 2000 на такси»'
+          );
         }
         setComposerOpen(false);
       } catch (e) {
@@ -215,49 +259,9 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
     setAlerts((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  const handleSpoken = useCallback(
-    async (spoken: string) => {
-      if (handlingRef.current || busyRef.current) return;
-      const { woke, command } = parseWallECommand(spoken);
-      const active = wallEActiveRef.current;
-
-      // Ignore noise unless wake word or already in a session / clear money phrase while active
-      if (!woke && !active) return;
-
-      handlingRef.current = true;
-      try {
-        if (woke) {
-          setWallEActive(true);
-          wallEActiveRef.current = true;
-          if (!command) {
-            setReply('Слушаю, Валли на связи.');
-            setHints(['Скажите сумму: «2000 на такси» или «запиши 1500 на еду»']);
-            setError(null);
-            return;
-          }
-          await runAssist(command, { autoConfirm: true });
-          setWallEActive(false);
-          wallEActiveRef.current = false;
-          return;
-        }
-
-        if (active && spoken.trim()) {
-          // Skip tiny noise while waiting for command
-          if (spoken.trim().length < 2) return;
-          if (!looksLikeTransactionCommand(spoken) && spoken.trim().split(/\s+/).length < 2) {
-            setHints(['Не расслышала. Например: 2000 на такси']);
-            return;
-          }
-          await runAssist(spoken.trim(), { autoConfirm: true });
-          setWallEActive(false);
-          wallEActiveRef.current = false;
-        }
-      } finally {
-        handlingRef.current = false;
-      }
-    },
-    [runAssist]
-  );
+  const handleSpokenRef = useRef<(spoken: string) => void>(() => {});
+  const pauseAmbientRef = useRef(() => {});
+  const resumeAmbientRef = useRef(() => {});
 
   const {
     listening,
@@ -269,12 +273,110 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
   } = useWallEVoice({
     onFinal: (text) => {
       setTranscript(text);
-      handleSpoken(text);
+      handleSpokenRef.current(text);
     },
     onInterim: setTranscript,
+    onEnd: () => {
+      if (wakeHapticPendingRef.current) {
+        wakeHapticPendingRef.current = false;
+        void lightHaptic();
+      }
+    },
     onError: setError,
     autoRestart: true,
   });
+
+  useEffect(() => {
+    pauseAmbientRef.current = pauseAmbient;
+    resumeAmbientRef.current = resumeAmbient;
+  }, [pauseAmbient, resumeAmbient]);
+
+  const handleSpoken = useCallback(
+    async (spoken: string) => {
+      if (handlingRef.current || busyRef.current) return;
+      const trimmed = spoken.trim();
+      if (!trimmed) return;
+
+      const { woke, command } = parseWallECommand(trimmed);
+      const money = looksLikeTransactionCommand(trimmed) || looksLikeTransactionCommand(command);
+      const active = wallEActiveRef.current || manualVoiceRef.current;
+
+      // Ambient without wake: still accept clear money phrases (was the main “hears but ignores” bug)
+      if (!woke && !active && !money) return;
+
+      handlingRef.current = true;
+      pauseAmbientRef.current();
+      try {
+        if (woke && !command && !money) {
+          setWallEActive(true);
+          wallEActiveRef.current = true;
+          setReply('Слушаю, Валли на связи.');
+          setHints(['Скажите сумму: «2000 на такси»']);
+          setError(null);
+          // Haptic after mic fully stopped (iOS blocks taptic during capture)
+          setTimeout(() => void lightHaptic(), 280);
+          setTimeout(() => {
+            if (screenRef.current === 'Home') resumeAmbientRef.current();
+          }, 600);
+          return;
+        }
+
+        const payload = (command || trimmed).trim();
+        if (payload.length < 2) {
+          if (screenRef.current === 'Home') resumeAmbientRef.current();
+          return;
+        }
+
+        if (!looksLikeTransactionCommand(payload) && !active && !woke) {
+          if (screenRef.current === 'Home') resumeAmbientRef.current();
+          return;
+        }
+
+        if (!looksLikeTransactionCommand(payload) && (active || woke)) {
+          setHints(['Не расслышала сумму. Например: 2000 на такси']);
+          setError(null);
+          if (screenRef.current === 'Home') resumeAmbientRef.current();
+          return;
+        }
+
+        setWallEActive(true);
+        wallEActiveRef.current = true;
+        await runAssist(payload, { autoConfirm: true });
+        manualVoiceRef.current = false;
+        setManualVoiceActive(false);
+        setWallEActive(false);
+        wallEActiveRef.current = false;
+        setTimeout(() => void lightHaptic(), 200);
+        if (screenRef.current === 'Home') resumeAmbientRef.current();
+      } catch (e) {
+        setError(getErrorMessage(e));
+        if (screenRef.current === 'Home') resumeAmbientRef.current();
+      } finally {
+        handlingRef.current = false;
+      }
+    },
+    [runAssist]
+  );
+
+  useEffect(() => {
+    handleSpokenRef.current = handleSpoken;
+  }, [handleSpoken]);
+
+  const stopVoice = useCallback(() => {
+    manualVoiceRef.current = false;
+    setManualVoiceActive(false);
+    wakeHapticPendingRef.current = false;
+    setWallEActive(false);
+    wallEActiveRef.current = false;
+    setTranscript('');
+    pauseAmbient();
+  }, [pauseAmbient]);
+
+  const startVoice = useCallback(() => {
+    manualVoiceRef.current = true;
+    setManualVoiceActive(true);
+    resumeAmbient();
+  }, [resumeAmbient]);
 
   useEffect(() => {
     const onChange = (state: AppStateStatus) => {
@@ -301,6 +403,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       error,
       listening,
       wallEActive,
+      manualVoiceActive,
       transcript,
       voiceAvailable: supported,
       setNavigationRef,
@@ -316,6 +419,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       stopListening,
       pauseAmbient,
       resumeAmbient,
+      stopVoice,
+      startVoice,
     }),
     [
       screen,
@@ -328,6 +433,7 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       error,
       listening,
       wallEActive,
+      manualVoiceActive,
       transcript,
       supported,
       setNavigationRef,
@@ -342,6 +448,8 @@ export function AssistantProvider({ children }: { children: React.ReactNode }) {
       stopListening,
       pauseAmbient,
       resumeAmbient,
+      stopVoice,
+      startVoice,
     ]
   );
 

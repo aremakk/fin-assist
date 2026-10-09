@@ -51,7 +51,9 @@ export function BrandLoader({
   const finishedRef = useRef(false);
   const pulseStartedAtRef = useRef(0);
   const onFinishedRef = useRef(onFinished);
-  onFinishedRef.current = onFinished;
+  useEffect(() => {
+    onFinishedRef.current = onFinished;
+  }, [onFinished]);
 
   // Keep the loader alive for slow requests instead of disappearing mid-refresh.
   useEffect(() => {

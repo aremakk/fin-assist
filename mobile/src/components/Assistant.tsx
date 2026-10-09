@@ -114,7 +114,7 @@ function useAssistantStyles() {
 }
 
 export function AssistantBanner() {
-  const { colors, styles } = useAssistantStyles();
+  const { styles } = useAssistantStyles();
 
 
   const { alerts, dismissAlert, applyAction } = useAssistant();
@@ -159,35 +159,37 @@ export function AssistantHintCard() {
     error,
     listening,
     wallEActive,
+    manualVoiceActive,
     transcript,
-    startListening,
-    stopListening,
+    stopVoice,
+    startVoice,
     voiceAvailable,
   } = useAssistant();
   const [text, setText] = useState('');
   const hint = hints[0] || reply;
+  const micOn = listening || wallEActive;
 
   const statusLine = listening
-    ? wallEActive
+    ? wallEActive || manualVoiceActive
       ? 'Слушаю команду…'
       : 'Скажите «Валли»…'
     : wallEActive
-      ? 'Валли на связи'
+      ? 'Валли на связи — говорите сумму'
       : null;
 
   return (
-    <View style={[styles.hint, (listening || wallEActive) && styles.hintActive]}>
+    <View style={[styles.hint, micOn && styles.hintActive]}>
       <View style={styles.hintTop}>
         <Text style={styles.hintKicker}>ВАЛЛИ</Text>
         {voiceAvailable ? (
           <Pressable
             onPress={() => {
-              if (listening) stopListening();
-              else startListening();
+              if (manualVoiceActive || wallEActive) stopVoice();
+              else startVoice();
             }}
           >
             <Text style={styles.hintSay}>
-              {listening ? 'Стоп' : '🎙 Слушать'}
+              {manualVoiceActive || wallEActive ? 'Стоп' : '🎙 Команда'}
             </Text>
           </Pressable>
         ) : (
@@ -288,4 +290,3 @@ export function AssistConfirmSheet() {
     </Modal>
   );
 }
-

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Animated, Easing } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { lightHaptic } from '../utils/haptics';
 
 /** Distance (px) at which the brand liquid is full and refresh starts. */
 const PULL_FILL_PX = 90;
@@ -55,6 +56,7 @@ export function useBrandPullRefresh() {
     animReadyRef.current = false;
     setDataReady(false);
     setRefreshing(true);
+    void lightHaptic();
     void loadRef.current?.();
   }, [pullProgress]);
 

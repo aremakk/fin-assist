@@ -192,7 +192,11 @@ public class AssistService {
         String reply;
 
         String lower = message.toLowerCase(Locale.ROOT);
-        if (!message.isBlank() && (lower.contains("открой") || lower.contains("покажи") || lower.contains("статистик")
+        boolean recordWithAmount = looksLikeMoneyPhrase(lower)
+                && (lower.contains("запиш") || lower.contains("добав") || lower.contains("потрат")
+                || lower.contains("купил") || lower.contains("оплат"));
+        if (!message.isBlank() && !recordWithAmount
+                && (lower.contains("открой") || lower.contains("покажи") || lower.contains("статистик")
                 || lower.contains("операц") || lower.contains("кошел"))) {
             String route = "Home";
             if (lower.contains("статистик")) route = "Stats";

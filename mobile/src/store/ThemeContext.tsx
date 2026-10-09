@@ -58,7 +58,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     try {
       // Reset to system when preference is system; otherwise force light/dark.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (Appearance as any).setColorScheme(preference === 'system' ? null : preference);
     } catch {
       // older RN

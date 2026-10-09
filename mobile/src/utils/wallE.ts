@@ -11,28 +11,12 @@ export function parseWallECommand(raw: string): { woke: boolean; command: string
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Common STT variants for «Валли»
-  const wakePatterns = [
-    /^валли\b\s*/,
-    /^вали\b\s*/,
-    /^валя\b\s*/,
-    /^вольи\b\s*/,
-    /^волли\b\s*/,
-    /^wall[\s-]?e\b\s*/,
-    /^walle\b\s*/,
-    /^wali\b\s*/,
-  ];
-
-  for (const pattern of wakePatterns) {
-    if (pattern.test(normalized)) {
-      const command = normalized.replace(pattern, '').trim();
-      return { woke: true, command };
-    }
-  }
-
-  if (/\b(валли|вали|валя|вольи|волли|wali|walle|wall[\s-]?e)\b/.test(normalized)) {
+  // JavaScript's \b only treats ASCII letters as word characters, so it misses «Валли».
+  const wakeAnywhere =
+    /(?:^|\s)(?:валл?[иыея]|валя|вольи|волли|вал[\s-]?ли|wall[\s-]?e|walle|wali)(?=\s|$)/u;
+  if (wakeAnywhere.test(normalized)) {
     const command = normalized
-      .replace(/\b(валли|вали|валя|вольи|волли|wali|walle|wall[\s-]?e)\b/g, ' ')
+      .replace(wakeAnywhere, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     return { woke: true, command };
@@ -45,9 +29,21 @@ export function parseWallECommand(raw: string): { woke: boolean; command: string
 export function looksLikeTransactionCommand(text: string): boolean {
   const t = (text || '').toLowerCase();
   if (!t.trim()) return false;
-  if (/\d/.test(t) && /(запиш|добав|потрат|купил|оплат|расход|доход|тенге|₸|\bна\b)/.test(t)) {
+  if (/\d/.test(t) && /(запиш|добав|потрат|купил|оплат|расход|доход|тенге|₸|(?:^|\s)на(?:\s|$))/.test(t)) {
     return true;
   }
   // bare "2000 такси" / "две тысячи на еду" with digits
   return /\d{2,}/.test(t) && t.length <= 80;
+}
+
+/**
+ * Normalize voice/text for the assist API.
+ * Older backends only create when they see «запиши» — prefix when missing.
+ */
+export function toAssistRecordMessage(raw: string): string {
+  const text = (raw || '').trim();
+  if (!text) return text;
+  if (!looksLikeTransactionCommand(text)) return text;
+  if (/(запиш|добав)/i.test(text)) return text;
+  return `запиши ${text}`;
 }

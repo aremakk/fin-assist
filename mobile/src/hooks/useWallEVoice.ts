@@ -31,35 +31,49 @@ export function isWallEVoiceSupported(): boolean {
 type Options = {
   onFinal: (transcript: string) => void;
   onInterim?: (transcript: string) => void;
+  onEnd?: () => void;
   onError?: (message: string) => void;
   /** Restart mic after each utterance (ambient Валли). */
   autoRestart?: boolean;
 };
 
+const RESTART_MS = 1400;
+const START_GAP_MS = 220;
+
 /**
  * Safe voice helper — works only in a native build with expo-speech-recognition.
  * In Expo Go the native module is missing; callers must fall back to text.
  */
-export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true }: Options) {
+export function useWallEVoice({ onFinal, onInterim, onEnd, onError, autoRestart = true }: Options) {
   const [listening, setListening] = useState(false);
   const [supported] = useState(() => isWallEVoiceSupported());
   const onFinalRef = useRef(onFinal);
   const onInterimRef = useRef(onInterim);
+  const onEndRef = useRef(onEnd);
   const onErrorRef = useRef(onError);
   const pausedRef = useRef(false);
+  const listeningRef = useRef(false);
+  const startingRef = useRef(false);
+  const interimRef = useRef('');
+  const finalSeenRef = useRef(false);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  onFinalRef.current = onFinal;
-  onInterimRef.current = onInterim;
-  onErrorRef.current = onError;
+  const restartGen = useRef(0);
+  useEffect(() => {
+    onFinalRef.current = onFinal;
+    onInterimRef.current = onInterim;
+    onEndRef.current = onEnd;
+    onErrorRef.current = onError;
+  }, [onFinal, onInterim, onEnd, onError]);
 
-  const clearRestart = () => {
+  const clearRestart = useCallback(() => {
+    restartGen.current += 1;
     if (restartTimer.current) {
       clearTimeout(restartTimer.current);
       restartTimer.current = null;
     }
-  };
+  }, []);
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(async (opts?: { force?: boolean }) => {
     const mod = getSpeechNative();
     if (!mod) {
       onErrorRef.current?.(
@@ -67,13 +81,23 @@ export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true 
       );
       return;
     }
+    if (opts?.force) {
+      pausedRef.current = false;
+    }
     if (pausedRef.current) return;
+    if (startingRef.current || listeningRef.current) return;
+
+    startingRef.current = true;
+    clearRestart();
     try {
       try {
-        mod.abort?.();
+        mod.stop?.();
       } catch {
         // ignore
       }
+      await new Promise((r) => setTimeout(r, START_GAP_MS));
+      if (pausedRef.current) return;
+
       const perm = await mod.requestPermissionsAsync();
       if (!perm.granted) {
         onErrorRef.current?.('Нужен доступ к микрофону и распознаванию речи');
@@ -85,27 +109,34 @@ export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true 
         );
         return;
       }
+      if (pausedRef.current) return;
+
       mod.start({
         lang: 'ru-RU',
         interimResults: true,
         continuous: false,
         addsPunctuation: false,
       });
+      listeningRef.current = true;
       setListening(true);
     } catch {
+      listeningRef.current = false;
       setListening(false);
-      onErrorRef.current?.(
-        'Не удалось запустить распознавание речи'
-      );
+      onErrorRef.current?.('Не удалось запустить распознавание речи');
+    } finally {
+      startingRef.current = false;
     }
-  }, []);
+  }, [clearRestart]);
 
   const scheduleRestart = useCallback(() => {
     if (!autoRestart || pausedRef.current) return;
-    clearRestart();
+    const gen = restartGen.current + 1;
+    restartGen.current = gen;
+    if (restartTimer.current) clearTimeout(restartTimer.current);
     restartTimer.current = setTimeout(() => {
-      startListening();
-    }, 700);
+      if (gen !== restartGen.current || pausedRef.current) return;
+      void startListening();
+    }, RESTART_MS);
   }, [autoRestart, startListening]);
 
   useEffect(() => {
@@ -113,9 +144,22 @@ export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true 
     if (!mod?.addListener) return;
 
     const subs = [
-      mod.addListener('start', () => setListening(true)),
+      mod.addListener('start', () => {
+        listeningRef.current = true;
+        interimRef.current = '';
+        finalSeenRef.current = false;
+        setListening(true);
+      }),
       mod.addListener('end', () => {
+        listeningRef.current = false;
         setListening(false);
+        // Some iOS sessions end after interim text without emitting isFinal.
+        if (!pausedRef.current && !finalSeenRef.current && interimRef.current.trim()) {
+          finalSeenRef.current = true;
+          onFinalRef.current(interimRef.current.trim());
+        }
+        interimRef.current = '';
+        onEndRef.current?.();
         scheduleRestart();
       }),
       mod.addListener('result', (event: unknown) => {
@@ -125,18 +169,32 @@ export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true 
         };
         const text = e.results?.[0]?.transcript ?? '';
         if (!text) return;
-        if (e.isFinal) onFinalRef.current(text);
-        else onInterimRef.current?.(text);
+        if (e.isFinal) {
+          if (finalSeenRef.current) return;
+          finalSeenRef.current = true;
+          interimRef.current = '';
+          onFinalRef.current(text);
+        } else if (!finalSeenRef.current) {
+          interimRef.current = text;
+          onInterimRef.current?.(text);
+        }
       }),
       mod.addListener('error', (event: unknown) => {
+        listeningRef.current = false;
+        interimRef.current = '';
         setListening(false);
         const e = event as { error?: string; message?: string };
-        // no-speech / aborted — quietly keep listening
         if (e.error === 'not-allowed') {
           onErrorRef.current?.('Нет разрешения на микрофон / речь');
           return;
         }
-        if (e.error === 'no-speech' || e.error === 'aborted' || e.error === 'client') {
+        // Quietly recover — don't spam the UI on no-speech / aborted
+        if (
+          e.error === 'no-speech' ||
+          e.error === 'aborted' ||
+          e.error === 'client' ||
+          e.error === 'busy'
+        ) {
           scheduleRestart();
           return;
         }
@@ -147,35 +205,37 @@ export function useWallEVoice({ onFinal, onInterim, onError, autoRestart = true 
       clearRestart();
       subs.forEach((s) => s.remove());
     };
-  }, [scheduleRestart]);
+  }, [clearRestart, scheduleRestart]);
 
   const stopListening = useCallback(() => {
     clearRestart();
     const mod = getSpeechNative();
     try {
-      mod?.abort?.();
+      mod?.stop?.();
     } catch {
       // ignore
     }
+    listeningRef.current = false;
     setListening(false);
-  }, []);
+  }, [clearRestart]);
 
-  /** Pause ambient loop (e.g. leaving Home). */
+  /** Pause ambient loop (e.g. leaving Home / while API runs). */
   const pauseAmbient = useCallback(() => {
     pausedRef.current = true;
     stopListening();
   }, [stopListening]);
 
-  /** Resume ambient loop. */
+  /** Resume ambient loop — always clears pause so the mic button works. */
   const resumeAmbient = useCallback(() => {
     pausedRef.current = false;
-    startListening();
+    if (listeningRef.current || startingRef.current) return;
+    void startListening({ force: true });
   }, [startListening]);
 
   return {
     listening,
     supported,
-    startListening,
+    startListening: () => startListening({ force: true }),
     stopListening,
     pauseAmbient,
     resumeAmbient,
